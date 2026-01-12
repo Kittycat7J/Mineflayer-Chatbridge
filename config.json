@@ -3,17 +3,14 @@
     "email": "",
     "password": ""
   },
-  "IP": "hamhung.0b0t.org",
+  "IP": "",
   "token": "",
   "webhook": {
     "id": "",
     "token": ""
   },
   "chat_channel": "",
-  "admins": [""],
-  "blacklisted": [""],
-  "players": ["player1, player2"],
-  "whitelist": true 
+  "admins": [
+    ""
+  ]
 }
-
-
