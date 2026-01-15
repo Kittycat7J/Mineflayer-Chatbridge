@@ -5,7 +5,9 @@ const {
   token,
   chat_channel,
   webhook,
-  admins
+  admins,
+  apiKey,
+  apiUrl,
 } = require("./config.json");
 
 const fs = require("fs");
@@ -146,6 +148,19 @@ client.on("messageCreate", async (message) => {
         flags: [ 4096 ],
       });
     }
+    if (command === "backup" && admins.includes(message.author.id)) {
+      //when backup is called if there is a name after (!backup name) use that name else use default
+      console.log("Backup command called by admin");
+      console.log("Message content:", message.content);
+      let name = message.content.split(" ")[1] || "bot_backup";
+      backup(name);
+      WEBHOOK.send({
+        username: bot.username,
+        avatarURL: `https://minotar.net/avatar/${bot.username}`,
+        content: `Backup started!`,
+        flags: [ 4096 ],
+      });
+    }
     if (command === "join" && admins.includes(message.author.id) && bot.health <= 0) {
       setup(bot);
     } else if (command === "join" && admins.includes(message.author.id) && bot.health > 0) {
@@ -168,7 +183,7 @@ client.on("messageCreate", async (message) => {
       WEBHOOK.send({
         username: bot.username,
         avatarURL: `https://minotar.net/avatar/${bot.username}`,
-        content: `My current position is X: ${position.x.toFixed(0)}, Y: ${position.y.toFixed(0)}, Z: ${position.z.toFixed(0)} in ${bot.world.dimension}`,
+        content: `My current position is X: ${position.x.toFixed(0)}, Y: ${position.y.toFixed(0)}, Z: ${position.z.toFixed(0)} in ${bot.game.dimension}`,
       });
     }
   }
@@ -355,4 +370,20 @@ async function ticksToTime(ticks) {
   } catch (err) {
     console.error(err);
   }
+}
+
+async function backup(name) {
+
+  console.log("Starting backup:", name);
+  fetch(`https://${apiUrl}/api/client/servers/425c75ef-7a1f-4ea3-accd-7fbc9688b2c9/backups`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${apiKey}`,
+      "Accept": "Application/vnd.pterodactyl.v1+json",
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      name: name
+    })
+  });
 }
