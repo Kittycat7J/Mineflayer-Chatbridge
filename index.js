@@ -1,5 +1,6 @@
 const {
   IP,
+  port,
   login,
   token,
   chat_channel,
@@ -18,6 +19,8 @@ const {
   Events,
   WebhookClient,
 } = require("discord.js");
+const { channel } = require("diagnostics_channel");
+const { randomInt } = require("crypto");
 const config = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
 const client = new Client({
   intents: [
@@ -37,7 +40,7 @@ client.once(Events.ClientReady, async () => {
 
   bot = mineflayer.createBot({
     host: IP,
-    port: 25568,
+    port: port,
     username: login.email,
     // auth: "microsoft",
     // password: login.password,
@@ -49,7 +52,7 @@ client.once(Events.ClientReady, async () => {
     console.error("Invalid Discord channel ID:", chat_channel);
     return;
   }
-
+  console.log("Connected to Discord channel:", chat_channel);
   setup(bot);
 });
 
@@ -103,12 +106,22 @@ client.on("messageCreate", async (message) => {
         content: `Pong! My ping is ${bot.player.ping}ms`,
       });
     }
+    if (command === "quit" && admins.includes(message.author.id)) {
+      bot.end();
+    }
+    if (command === "restart" && admins.includes(message.author.id)) {
+      bot.end();
+      setup(bot);
+    }
+    if (command === "join" && admins.includes(message.author.id) && bot.health <= 0) {
+      setup(bot);
+    }
     if (command === "position") {
       const position = bot.player.entity.position;
       WEBHOOK.send({
         username: bot.username,
         avatarURL: `https://minotar.net/avatar/${bot.username}`,
-        content: `My current position is X: ${position.x.toFixed(0)}, Y: ${position.y.toFixed(0)}, Z: ${position.z.toFixed(0)}`,
+        content: `My current position is X: ${position.x.toFixed(0)}, Y: ${position.y.toFixed(0)}, Z: ${position.z.toFixed(0)} in ${bot.world.dimension}`,
       });
     }
   }
@@ -135,7 +148,7 @@ commands = {
   position: (message, username) => {
     const position = bot.player.entity.position;
     bot.chat(
-      `[${username}]: My current position is X: ${position.x.toFixed(0)}, Y: ${position.y.toFixed(0)}, Z: ${position.z.toFixed(0)}`
+      `[${username}]: My current position is X: ${position.x.toFixed(0)}, Y: ${position.y.toFixed(0)}, Z: ${position.z.toFixed(0)} in ${bot.world.dimension}`
     )
   },
 };
@@ -148,53 +161,6 @@ function sleeps(time) {
 async function setup(bot) {
   bot.loadPlugin(movement.plugin);
 
-  bot.once("login", function init() {
-    
-    // WEBHOOK.send({
-    //   username: bot.username,
-    //   content: `Logged in at: ${position}`,
-    // });
-    // const { Default } = bot.movement.goals;
-    // bot.movement.setGoal(Default);
-    
-  });
-  bot.once("spawn", () => {
-    console.log("Minecraft Bot is ready");
-    // position = bot.player.entity.position
-    // WEBHOOK.send({
-    //   username: bot.username,
-    //   avatarURL: `https://minotar.net/avatar/${bot.username}`,
-    //   content: `Logged in at: ${position.x.toFixed(0)}, ${position.y.toFixed(0)}, ${position.z.toFixed(0)}`,
-    // });
-    // bot.on("physicsTick", function tick() {
-    //   const entity = bot.nearestEntity((entity) => entity.type === "player");
-    //   if (entity) {
-    //     // Convert the entity username to lowercase for case-insensitive comparison
-    //     const lowercaseEntityUsername = entity.username.toLowerCase();
-  
-    //     // Convert the names in the players array to lowercase for comparison
-    //     const lowercasedPlayers = players.map(player => player.toLowerCase());
-  
-    //     if (lowercasedPlayers.includes(lowercaseEntityUsername)) {
-    //       bot.movement.heuristic.get("proximity").target(entity.position);
-    //       const yaw = bot.movement.getYaw(240, 15, 1);
-    //       bot.movement.steer(yaw);
-    //     }
-    //   }
-    // });
-  });
-  // bot.on("chat", async (username, message) => {
-  //   if (username != bot.username) {
-  //     // message = filter(message);
-
-      // await WEBHOOK.send({
-      //   username: username,
-      //   avatarURL: `https://minotar.net/avatar/${username}`,
-      //   content: message,
-      //   flags: [ 4096 ],
-      // });
-  //   }
-  // });
   bot.on("message", async (message) => {
     // let username, messageContent = null;
     
@@ -205,6 +171,11 @@ async function setup(bot) {
           commands[messageContent.slice(prefix.length).split(" ")[0]](messageContent, username);
         } catch {}
       }
+      if (username == "Server" && (messageContent.includes("joined the game") || messageContent.includes("left the game"))) {
+        updateChannelWithServerStats();
+        console.log("Updated server stats due to player join/leave");
+      }
+
       await WEBHOOK.send({
           username: username,
           avatarURL: username == "Server" ? `https://www.freeiconspng.com/download/40686` /*Minecraft Server Icon Download Vectors Free*/ : `https://minotar.net/avatar/${username}`,
@@ -215,8 +186,29 @@ async function setup(bot) {
   });
 
 
+bot.on("spawn", () => {
+  console.log("Bot has spawned"); 
+  updateChannelWithServerStats();
+});
+bot.on("time", () => {
+  // every noon or midnight update stats
+  bot.time.timeOfDay == (6005 || 18015) ? updateChannelWithServerStats() : null;
+});
 
-  
+bot.on("soundEffectHeard", (soundName) => {
+  if (soundName == "ambient.cave") {
+    console.log("updating stats because SPOOKY NOISE!");
+    randomInt(1, 100) > 80 ? bot.chat('AHH! I heard something!') : null;
+    randomInt(1, 100) > 90 ? WEBHOOK.send({
+      username: bot.username,
+      avatarURL: `https://minotar.net/avatar/${bot.username}`,
+      content: `Did you hear something!?`,
+      flags: [ 4096 ],
+    }) : null;
+    updateChannelWithServerStats();
+  }
+});
+
 bot.on("end", (reason) => {
   console.log(reason);
   WEBHOOK.send({
@@ -237,16 +229,15 @@ function filter(message) {
   let content = message;
 
   if (match) {
-    username = match[1];   // ✅ capture group 1
-    content  = match[2];   // rest of the message
+    username = match[1];   
+    content  = match[2];  
   } else {
     username = "Server";
     content = message;
   }
   
 
-  // message = message.replaceAll("~", "\\~");
-  // message = message.replaceAll("*", "\\*");
+
   message = message.replaceAll(
     "/((?:https?://)?(?:www.)?[-a-zA-Z0-9@:%._+~#=]{1,256}.[a-zA-Z0-9()]{1,6}\b(?:[-a-zA-Z0-9()@:%_+.~#?&//=]*))/g",
     "<$1>"
@@ -254,3 +245,67 @@ function filter(message) {
   message = message.trim();
   return [username, content];
 }}
+
+
+/**
+ * Updates this text channel's topic with Mineflayer stats
+ * @param {import('discord.js').TextChannel} channel
+ */
+async function updateChannelWithServerStats() {
+  try {
+    console.log("Updating stats channel topic...");
+    const chatChannel = await client.channels.fetch(chat_channel);
+
+    // MINEFLAYER STATS
+    // bot.players is a map of all current online players
+    await sleeps(6969); // give it a nice moment to update
+    const playersMap = bot.players;
+    const playersOnline = Object.values(playersMap).filter(p => p && p.username).length; 
+    const playerNames = Object.values(playersMap)
+      .map(p => p?.username)
+      .filter(Boolean);
+    const ping = bot.player.ping ?? null;
+    const gameTime = await ticksToTime(bot.time.timeOfDay);
+
+    let topic = `Online: ${playersOnline - 1 }`;
+    if (playersOnline) {
+      topic += ` | Players: ${playerNames.join(", ").replace(bot.username, `${bot.username} (Bot)`)}`;
+    }
+    if (ping !== null) {
+      topic += ` | Bot Ping: ${ping}ms`;
+    }
+    if (gameTime !== null) {
+      topic += ` | Game Time: ${gameTime}`;
+    }
+    console.log("Generated topic:", topic);
+    // Update the channel topic
+    chatChannel.setTopic(topic);
+    console.log(`Updated channel topic to: ${topic}`);
+  } catch (err) {
+    console.error("Failed to update stats channel topic:", err);
+  }
+}
+
+async function ticksToTime(ticks) {
+  // Ensure ticks stay within one day
+  ticks = ((ticks % 24000) + 24000) % 24000;
+
+  // Convert ticks to minutes
+  const totalMinutes = (ticks * 24 * 60) / 24000;
+
+  // Minecraft day starts at 6:00
+  let minutes = totalMinutes + 6 * 60;
+
+  // Wrap around 24h
+  minutes %= 1440;
+
+  const hours = Math.floor(minutes / 60);
+  const mins = Math.floor(minutes % 60);
+  try {
+  return await `${hours.toString().padStart(2, "0")}:${mins
+    .toString()
+    .padStart(2, "0")}`;
+  } catch (err) {
+    console.error(err);
+  }
+}
