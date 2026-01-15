@@ -85,7 +85,7 @@ client.on("messageCreate", async (message) => {
     WEBHOOK.send({
       username: bot.username,
       avatarURL: `https://minotar.net/avatar/${bot.username}`,
-      content: `!help - Shows this message \n!ping - Shows bot ping \n!position - Shows bot position \n!players - Shows online players` + (admins.includes(message.author.id) ? `\nBot admins only:\n!quit - Makes the bot quit the server \n!restart - Restarts the bot \n!join - Makes the bot join the server if dead` : ""),
+      content: `!help - Shows this message \n!ping - Shows bot ping \n!position - Shows bot position \n!players - Shows online players` + (admins.includes(message.author.id) ? `\nBot admins only:\n!quit - Makes the bot quit the server\n!join - Makes the bot join the server if dead` : ""),
     });
     }
     if (command === "players") {
@@ -139,17 +139,6 @@ client.on("messageCreate", async (message) => {
       });
       await bot.end();
     } else if (command === "quit" && !admins.includes(message.author.id)) {
-      WEBHOOK.send({
-        username: bot.username,
-        avatarURL: `https://minotar.net/avatar/${bot.username}`,
-        content: `You don't have permission to use this command!`,
-        flags: [ 4096 ],
-      });
-    }
-    if (command === "restart" && admins.includes(message.author.id)) {
-      bot.end();
-      setup(bot);
-    } else if (command === "restart" && !admins.includes(message.author.id)) {
       WEBHOOK.send({
         username: bot.username,
         avatarURL: `https://minotar.net/avatar/${bot.username}`,
