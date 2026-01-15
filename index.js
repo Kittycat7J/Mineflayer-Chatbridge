@@ -85,7 +85,7 @@ client.on("messageCreate", async (message) => {
     WEBHOOK.send({
       username: bot.username,
       avatarURL: `https://minotar.net/avatar/${bot.username}`,
-      content: `!help - Shows this message \n!ping - Shows bot ping \n!position - Shows bot position \n!players - Shows online players`,
+      content: `!help - Shows this message \n!ping - Shows bot ping \n!position - Shows bot position \n!players - Shows online players` + (admins.includes(message.author.id) ? `\nBot admins only:\n!quit - Makes the bot quit the server \n!restart - Restarts the bot \n!join - Makes the bot join the server if dead` : ""),
     });
     }
     if (command === "players") {
@@ -107,14 +107,72 @@ client.on("messageCreate", async (message) => {
       });
     }
     if (command === "quit" && admins.includes(message.author.id)) {
-      bot.end();
+      const goodbyes = [
+        // English
+        "Goodbye!",
+        "See you later!",
+        "Take care!",
+        "Bye for now!",
+
+        // German
+        "Auf Wiedersehen!",
+        "Tschüss!",
+        "Bis später!",
+        "Mach’s gut!",
+
+        // Spanish
+        "Adiós!",
+        "Hasta luego!",
+        "Nos vemos!",
+        "Cuídate!"
+      ];
+
+      const endMessage =
+        goodbyes[Math.floor(Math.random() * goodbyes.length)];
+
+      
+      await WEBHOOK.send({
+        username: bot.username,
+        avatarURL: `https://minotar.net/avatar/${bot.username}`,
+        content: endMessage,
+        flags: [ 4096 ],
+      });
+      await bot.end();
+    } else if (command === "quit" && !admins.includes(message.author.id)) {
+      WEBHOOK.send({
+        username: bot.username,
+        avatarURL: `https://minotar.net/avatar/${bot.username}`,
+        content: `You don't have permission to use this command!`,
+        flags: [ 4096 ],
+      });
     }
     if (command === "restart" && admins.includes(message.author.id)) {
       bot.end();
       setup(bot);
+    } else if (command === "restart" && !admins.includes(message.author.id)) {
+      WEBHOOK.send({
+        username: bot.username,
+        avatarURL: `https://minotar.net/avatar/${bot.username}`,
+        content: `You don't have permission to use this command!`,
+        flags: [ 4096 ],
+      });
     }
     if (command === "join" && admins.includes(message.author.id) && bot.health <= 0) {
       setup(bot);
+    } else if (command === "join" && admins.includes(message.author.id) && bot.health > 0) {
+      WEBHOOK.send({
+        username: bot.username,
+        avatarURL: `https://minotar.net/avatar/${bot.username}`,
+        content: `I'm already in the server!`,
+        flags: [ 4096 ],
+      });
+    } else if (command === "join" && !admins.includes(message.author.id)) {
+      WEBHOOK.send({
+        username: bot.username,
+        avatarURL: `https://minotar.net/avatar/${bot.username}`,
+        content: `You don't have permission to use this command!`,
+        flags: [ 4096 ],
+      });
     }
     if (command === "position") {
       const position = bot.player.entity.position;
@@ -271,7 +329,7 @@ async function updateChannelWithServerStats() {
     if (playersOnline) {
       topic += ` | Players: ${playerNames.join(", ").replace(bot.username, `${bot.username} (Bot)`)}`;
     }
-    if (ping !== null) {
+    if (ping !== null && ping) {
       topic += ` | Bot Ping: ${ping}ms`;
     }
     if (gameTime !== null) {
