@@ -1,16 +1,12 @@
 {
-  "login": {
-    "email": "",
-    "password": ""
-  },
-  "IP": "",
-  "token": "",
-  "webhook": {
-    "id": "",
-    "token": ""
-  },
-  "chat_channel": "",
+  "port": 12345,
+  "token": "EXAMPLE_TOKEN_ABC123.XYZ456.DEF789",
+  "webhook": "https://discord.com/api/webhooks/EXAMPLE_WEBHOOK_ID/EXAMPLE_WEBHOOK_TOKEN",
+  "chat_channel": "123456789012345678",
   "admins": [
-    ""
-  ]
+    "987654321098765432"
+  ],
+  "apiKey": "EXAMPLE_API_KEY_1234567890",
+  "apiUrl": "https://example.com",
+  "serverId": "00000000-0000-0000-0000-000000000000"
 }
