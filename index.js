@@ -286,7 +286,7 @@ client.on("messageCreate", async (message) => {
 
     if (cmd === "help") {
       try {
-        await WEBHOOK.send({ content: "Available commands:\n!help - shows this message\n!players - list the players in the server (*broken rn*)\n!backup <force> [name] - makes a server backup (admin only)\n!start - starts the server (admin only)\n!stop - stops the server (admin only)\n!restart - restarts the server (admin only)\n/<command> - sends a console command (admin only)\n!owoify [owo|uwu|uvu|none] - owoifies all messages", avatarURL: "https://www.freeiconspng.com/download/40686", username: "Server" , flags: [4096] });
+        await WEBHOOK.send({ content: "Available commands:\n!help - shows this message\n!players - list the players in the server\n!backup <force> [name] - makes a server backup (admin only)\n!start - starts the server (admin only)\n!stop - stops the server (admin only)\n!restart - restarts the server (admin only)\n/<command> - sends a console command (admin only)\n!owoify [owo|uwu|uvu|none] - owoifies all messages", avatarURL: "https://www.freeiconspng.com/download/40686", username: "Server" , flags: [4096] });
       } catch (err) {
         console.error("Help command error:", err);
       }
