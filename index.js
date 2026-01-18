@@ -1,4 +1,4 @@
-const fs = require("fs");
+const owoify = require('owoify-js').default;
 const fetch = require("node-fetch");
 const WebSocket = require("ws");
 const {
@@ -16,7 +16,7 @@ const {
   apiUrl,
   serverId,
 } = require("./config.json");
-
+let owoState = "none"; // default owoify state
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -38,6 +38,9 @@ let wsToken = null;
 let wsUrl = null;
 let reconnectTimer = null;
 // Generic Pterodactyl API request function
+
+
+
 async function ptero(endpoint, method = "GET", body, raw = false) {
   console.log(`Ptero API Request: ${method} ${endpoint}`);
   await console.log(`Body: ${body ? JSON.stringify(body) : "N/A"}`);
@@ -80,19 +83,28 @@ function connectWebsocket() {
     ws.send(JSON.stringify({ event: "auth", args: [wsToken] }));
   });
 
-  ws.on("message", (data) => {
+  ws.on("message", async (data) => {
     let msg = JSON.parse(data.toString());
+    playerStatsManager("update", msg.args?.[0] || "");
     const filtered = filterConsole(msg.args?.[0] || "");
+    
     if (!filtered) return;
-
+    if (owoState !== "none") {
+      filtered.message = owoify(filtered.message, owoState);
+    }
+    console.log("WS MSG:", filtered);
     if (filtered.sender && filtered.message) {
       console.log(`WS LOG [${filtered.sender}]: ${filtered.message}`);
-      WEBHOOK.send({ 
-        username: filtered.sender, 
-        avatarURL: filtered.sender == "Server" ? `https://www.freeiconspng.com/download/40686` /*Minecraft Server Icon Download Vectors Free*/ : `https://minotar.net/avatar/${filtered.sender}`, 
-        content: filtered.message, 
-        flags: [4096],
-      });
+      try {
+        await WEBHOOK.send({ 
+          username: filtered.sender, 
+          avatarURL: filtered.sender == "Server" ? `https://www.freeiconspng.com/download/40686` /*Minecraft Server Icon Download Vectors Free*/ : `https://minotar.net/avatar/${filtered.sender}`, 
+          content: filtered.message, 
+          flags: [4096],
+        });
+      } catch (err) {
+        console.error("Webhook send error:", err);
+      }
     }
   });
 
@@ -111,7 +123,7 @@ async function initWebsocket() {
     connectWebsocket();
   } catch (err) {
     console.error("WS init failed:", err);
-    setTimeout(initWebsocket, 10000);
+    setTimeout(initWebsocket, 8000);
   }
 }
 // Updates the Discord channel topic with server stats
@@ -121,8 +133,9 @@ async function updateChannelWithServerStats() {
     const channel = await client.channels.fetch(chat_channel);
     const r = await ptero(`/servers/${serverId}/resources`);
     const s = r.attributes;
-
+    await sendConsoleCommand("list"); // trigger player stats update
     // Get the latest player stats
+    await new Promise(r => setTimeout(r, 800)); // wait a bit for WS to process "list" response
     const stats = playerStatsManager("get");
 
     // Get player count and list
@@ -137,7 +150,7 @@ async function updateChannelWithServerStats() {
     const topic =
       `State: ${s.current_state}` +
       ` | RAM: ${(s.resources.memory_bytes / 1048576).toFixed(0)}MB` +
-      ` | Players: ${playersOnline}` + (playersOnline == "0" ? "" : `, ${playerList}`);
+      ` | Online: ${playersOnline}` + (playersOnline == "0" ? "" : `| Players: ${playerList}`);
     console.log("New topic:", topic);
     await channel.setTopic(topic);
   } catch (err) {
@@ -149,13 +162,18 @@ async function sendConsoleCommand(cmd) {
   // If WS is open, send via WS only
   if (ws && ws.readyState === WebSocket.OPEN) {
     console.log("Sending console command (WS):", cmd);
-    ws.send(JSON.stringify({
+    try {ws.send(JSON.stringify({
       event: "send command",
       args: [cmd]
     }));
+    } catch (err) {
+      console.error("WS send command error:", err);
+      ws.terminate();
+      initWebsocket();
+    }
     return ""; // no text response from WS send
   }
-
+  
   // Otherwise fallback to REST API
   console.warn("WS not connected, using REST API for command:", cmd);
   const res = await ptero(`/servers/${serverId}/command`, "POST", {
@@ -200,7 +218,7 @@ function filterConsole(line) {
 
   if (match[1] && match[2]) return { sender: match[1], message: match[2] };
   if (match[3] && match[4]) return { sender: match[3], message: match[4] };
-  if (match[5] && match[6]) return { sender: "Server", message: `${match[5]} ${match[6]}` };
+  if (match[5] && match[6]) {updateChannelWithServerStats(); return { sender: "Server", message: `${match[5]} ${match[6]}` };}
 
   return null;
 }
@@ -215,20 +233,36 @@ function playerStatsManager(action, line) {
   if (action === "update") {
     if (!line || typeof line !== "string") return;
 
-    // Check for "There are X/Y players online"
-    const countMatch = line.match(/There are (\d+)\/(\d+) players online/i);
+    const msgMatch = line.match(/^\[[^\]]+]\s+\[[^\]]+]:\s+(.*)$/);
+    const msg = msgMatch ? msgMatch[1] : line;
+
+  // Ignore panel / JSON noise
+  // Player count
+    const countMatch = msg.match(/There are (\d+)\/(\d+) players online/i);
     if (countMatch) {
       latestPlayerStats.online = parseInt(countMatch[1], 10);
       latestPlayerStats.max = parseInt(countMatch[2], 10);
-      latestPlayerStats.players = []; // reset player list
+      latestPlayerStats.players = [];
       return;
     }
 
-    // If there are online players, collect their names
+    // Collect names
     if (latestPlayerStats.online > 0) {
-      const names = line.split(/,?\s+/).filter(Boolean);
-      latestPlayerStats.players.push(...names);
+      const raw = msg.trim();
+
+      // Split both: "A, B" and "A" formats
+      const parts = raw.split(",").map(p => p.trim());
+
+      for (const name of parts) {
+        if (/^[A-Za-z0-9_]{3,16}$/.test(name)) {
+          if (!latestPlayerStats.players.includes(name)) {
+            latestPlayerStats.players.push(name);
+          }
+        }
+      }
     }
+
+
   } else if (action === "get") {
     return { ...latestPlayerStats }; // return a copy for safety
   }
@@ -237,7 +271,6 @@ function playerStatsManager(action, line) {
 client.on("clientReady", () => {
   console.log("Discord bot ready!");
   initWebsocket();
-  updateChannelWithServerStats();
   setInterval(updateChannelWithServerStats, 300000);
 });
 // discord message handler
@@ -245,50 +278,57 @@ client.on("messageCreate", async (message) => {
   if (message.channel.id !== chat_channel) return;
   if (message.author.bot) return;
 
-  const msg = message.content.trim();
+  let msg = message.content.trim();
 
   if (msg.startsWith("!")) {
     const args = msg.slice(1).split(" ");
     const cmd = args[0].toLowerCase();
 
     if (cmd === "help") {
-      WEBHOOK.send({ content: "Available commands:\n!help - shows this message\n!players - list the players in the server (*broken rn*)\n!backup <force> [name] - makes a server backup (admin only)\n!start - starts the server (admin only)\n!stop - stops the server (admin only)\n!restart - restarts the server (admin only)\n/<command> - sends a console command (admin only)", avatarURL: "https://www.freeiconspng.com/download/40686", username: "Server" , flags: [4096] });
+      try {
+        await WEBHOOK.send({ content: "Available commands:\n!help - shows this message\n!players - list the players in the server (*broken rn*)\n!backup <force> [name] - makes a server backup (admin only)\n!start - starts the server (admin only)\n!stop - stops the server (admin only)\n!restart - restarts the server (admin only)\n/<command> - sends a console command (admin only)\n!owoify [owo|uwu|uvu|none] - owoifies all messages", avatarURL: "https://www.freeiconspng.com/download/40686", username: "Server" , flags: [4096] });
+      } catch (err) {
+        console.error("Help command error:", err);
+      }
     }
     if (cmd === "players") {
       try {
         // Get the latest player stats from the manager
-        playerStatsManager("update", await sendConsoleCommand("list"));
+        await sendConsoleCommand("list");
+        await new Promise(r => setTimeout(r, 800));
         const stats = playerStatsManager("get");
         const listStr = stats.players.length > 0 ? stats.players.join(", ") : "None";
-
+        try {
         await WEBHOOK.send({
           content: `There are ${stats.online}/${stats.max} players online` + (listStr !== "None" ? `:\n${listStr}` : ""),
           username: "Server",
-          avatarURL: "https://www.freeiconspng.com/download/40686.png",
+          avatarURL: "https://www.freeiconspng.com/download/40686",
         });
+      } catch (err) { console.error("Players webhook send error:", err); }
       } catch (err) {
         console.error("Players command error:", err);
-
+        try {
         await WEBHOOK.send({
           content: "Failed to get player list.",
           username: "Server",
-          avatarURL: "https://www.freeiconspng.com/download/40686.png",
+          avatarURL: "https://www.freeiconspng.com/download/40686",
         });
+      } catch (err) { console.error("Webhook send error:", err); }
       }
 
     }
-    if (cmd === "backup" && admins.includes(message.author.id)) {
-      const force = args[1] && args[1].toLowerCase() === "force";
+    if (cmd === "backup") {
+      const force = admins.includes(message.author.id) && args[1] && args[1].toLowerCase() === "force";
 
       try {
         // list existing backups
         const listRes = await ptero(`/servers/${serverId}/backups`, "GET");
         const existing = listRes.data || [];
-
-        if (existing.length >= 2) {
+        console.log(`Existing backups: ${existing.length}`);
+        if (existing.length >= 3) {
           if (!force) {
-            return message.reply({
-              content: `Maximum number of backups reached (2). Use !backup force [name] to delete the oldest and create a new one.`,
+            return WEBHOOK.send({
+              content: `Maximum number of backups reached (3). Use !backup force [name] to delete the oldest and create a new one.`,
               avatarURL: "https://www.freeiconspng.com/download/40686",
               username: "Server",
             });
@@ -296,7 +336,7 @@ client.on("messageCreate", async (message) => {
 
           // find oldest backup by created time
           existing.sort((a, b) => new Date(a.attributes.created_at) - new Date(b.attributes.created_at));
-
+          console.log("Deleting oldest backup:", existing[0]);
           const oldest = existing[0];
           if (oldest && oldest.attributes && oldest.attributes.uuid) {
             await ptero(`/servers/${serverId}/backups/${oldest.attributes.uuid}`, "DELETE");
@@ -306,33 +346,50 @@ client.on("messageCreate", async (message) => {
         // now create backup
         const name = force && args[2] ? args[2] : args[1] || "discord_backup";
         await ptero(`/servers/${serverId}/backups`, "POST", { name });
-
-        await WEBHOOK.send({
-          content: `Backup started! (force: ${force})`,
-          avatarURL: "https://www.freeiconspng.com/download/40686",
-          username: "Server",
-        });
+        try {
+          await WEBHOOK.send({
+            content: `Backup started! (force: ${force})`,
+            avatarURL: "https://www.freeiconspng.com/download/40686",
+            username: "Server",
+            flags: [4096],
+          });
+        } catch (err) {
+          console.error("Backup webhook send error:", err);
+        }
       } catch (err) {
         console.error("Backup command error:", err);
-        message.reply({ content: "Failed to handle backup command.", avatarURL: "https://www.freeiconspng.com/download/40686", username: "Server" , flags: [4096] });
+        try { await WEBHOOK.send({ content: "Failed to handle backup command.", avatarURL: "https://www.freeiconspng.com/download/40686", username: "Server" , flags: [4096] }); } catch (err) { console.error("Webhook send error:", err); }
       }
 }
     
 
     if (admins.includes(message.author.id)) {
-      if (cmd === "start") {await power("start"); WEBHOOK.send({ content: "Server starting...", avatarURL: "https://www.freeiconspng.com/download/40686", username: "Server" , flags: [4096] });}
-      if (cmd === "stop") {await power("stop"); WEBHOOK.send({ content: "Server stopping...", avatarURL: "https://www.freeiconspng.com/download/40686", username: "Server" , flags: [4096] });}
+      if (cmd === "start") {await power("start"); try {await WEBHOOK.send({ content: "Server starting...", avatarURL: "https://www.freeiconspng.com/download/40686", username: "Server" , flags: [4096] });} catch (err) {console.error("Start command error:", err);}}
+      if (cmd === "stop") {await power("stop"); try {await WEBHOOK.send({ content: "Server stopping...", avatarURL: "https://www.freeiconspng.com/download/40686", username: "Server" , flags: [4096] });} catch (err) {console.error("Stop command error:", err);}}
       if (cmd === "restart") {
         await power("restart"); 
-        WEBHOOK.send({ content: "Server restarting...", avatarURL: "https://www.freeiconspng.com/download/40686", username: "Server" , flags: [4096] });
+        try {
+          await WEBHOOK.send({ content: "Server restarting...", avatarURL: "https://www.freeiconspng.com/download/40686", username: "Server" , flags: [4096] });
+        } catch (err) {
+          console.error("Restart command error:", err);
+        }
       }
     }
+    if (cmd === "owoify") {
+      if (args[1] === "none" || args[1] === "uwu" || args[1] === "uvu" || args[1] === "owo") {
+        owoState = args[1].toLowerCase();
+      }
+    }
+      
   } else if (msg.startsWith("/") && admins.includes(message.author.id)) {
     const command = msg.slice(1);
     await sendConsoleCommand(command);
   } else {
     console.log(`Discord LOG [${message.member.nickname == null ? message.author.displayName : message.member.nickname}]: ${msg}`);
     // Relay chat to server
+    if (owoState !== "none") {
+      msg = owoify(msg, owoState);
+    }
     await sendConsoleCommand(`say [${message.member.nickname == null ? message.author.displayName : message.member.nickname}]: ${msg}`);
   }
 });
